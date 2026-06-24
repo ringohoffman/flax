@@ -19,6 +19,7 @@ import typing as tp
 import jax
 import jax.numpy as jnp
 import optax
+import typing_extensions as tpe
 
 from flax import nnx
 from flax.nnx import filterlib
@@ -27,23 +28,18 @@ from flax.nnx.variablelib import Param, Variable
 
 M = tp.TypeVar('M')
 F = tp.TypeVar('F', bound=tp.Callable[..., tp.Any])
+ValueT = tpe.TypeVar('ValueT', default=tp.Any)
 
-class OptState(Variable):
+class OptState(Variable[ValueT]):
   """Any optimizer state"""
 
-  pass
 
-
-class OptArray(OptState):
+class OptArray(OptState[ValueT]):
   """Optimizer state for an array."""
 
-  pass
 
-
-class OptVariable(OptState):
+class OptVariable(OptState[ValueT]):
   """Optimizer state for a Variable."""
-
-  pass
 
 
 def to_opt_state(tree):

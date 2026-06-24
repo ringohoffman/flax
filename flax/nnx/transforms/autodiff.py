@@ -17,7 +17,6 @@ import dataclasses
 import functools
 import typing as tp
 
-
 from flax import struct
 from flax.nnx import (
   extract,
@@ -28,6 +27,8 @@ from flax.nnx import (
 from flax.nnx.extract import labeled
 from flax.nnx.statelib import State
 import jax
+import jax._src.interpreters.partial_eval as pe
+import typing_extensions as tpe
 
 from flax.nnx.transforms import general
 from flax.nnx.transforms.transforms import (
@@ -51,6 +52,16 @@ AxisName = tp.Hashable
 # Leaves = tp.List[Leaf]
 # Index = int
 
+CheckpointPolicyAction: tp.TypeAlias = (
+    bool | pe.RecomputeType | pe.SaveableType | pe.Offloadable
+)
+CheckpointPolicyAction_co = tpe.TypeVar(
+    "CheckpointPolicyAction_co",
+    bound=CheckpointPolicyAction,
+    covariant=True,
+    default=CheckpointPolicyAction,
+)
+CheckpointPolicy: tp.TypeAlias = tp.Callable[..., CheckpointPolicyAction_co]
 
 # -------------------------------
 # grad
@@ -1599,7 +1610,7 @@ def remat(
   *,
   prevent_cse: bool = True,
   static_argnums: int | tuple[int, ...] = (),
-  policy: tp.Callable[..., bool] | None = None,
+  policy: CheckpointPolicy | None = None,
   graph: bool | None = None,
   graph_updates: bool | None = None,
 ) -> tp.Callable[[F], F]: ...
@@ -1609,7 +1620,7 @@ def remat(
   *,
   prevent_cse: bool = True,
   static_argnums: int | tuple[int, ...] = (),
-  policy: tp.Callable[..., bool] | None = None,
+  policy: CheckpointPolicy | None = None,
   graph: bool | None = None,
   graph_updates: bool | None = None,
 ) -> F: ...
@@ -1618,7 +1629,7 @@ def remat(
   *,
   prevent_cse: bool = True,
   static_argnums: int | tuple[int, ...] = (),
-  policy: tp.Callable[..., bool] | None = None,
+  policy: CheckpointPolicy | None = None,
   graph: bool | None = None,
   graph_updates: bool | None = None,
 ) -> F | tp.Callable[[F], F]:
@@ -1677,7 +1688,7 @@ def remat(
       SimpleRematFn(f_unbound, graph=graph),
       prevent_cse=prevent_cse,
       static_argnums=static_argnums,
-      policy=policy,
+      policy=policy,  # type: ignore[arg-type]
     )
 
     @functools.wraps(f_unbound)
@@ -1701,7 +1712,7 @@ def remat(
           general.merge_inputs(f_unbound, ctxtag='remat'),
           prevent_cse=prevent_cse,
           static_argnums=static_argnums,
-          policy=policy,
+          policy=policy,  # type: ignore[arg-type]
         ),
         ctxtag='remat',
       ),

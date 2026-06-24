@@ -48,6 +48,8 @@ F = tp.TypeVar('F', bound=tp.Callable)
 HA = tp.TypeVar('HA', bound=tp.Hashable)
 HB = tp.TypeVar('HB', bound=tp.Hashable)
 KeyT = tp.TypeVar('KeyT', bound=Key)
+NodeT = tp.TypeVar('NodeT')
+VariableT = tp.TypeVar('VariableT', bound=variablelib.Variable[tp.Any])
 
 Index = int
 
@@ -2245,32 +2247,36 @@ def _split_state(
 
 
 @tp.overload
-def split(  # type: ignore[invalid-annotation]
-  graph_node: A, /, *, graph: bool | None = None,
-) -> tuple[GraphDef[A], State]: ...
+def split(
+  graph_node: NodeT, /, *, graph: bool | None = None,
+) -> tuple[GraphDef[NodeT], State[PathParts, tp.Any]]: ...
 @tp.overload
-def split(  # type: ignore[invalid-annotation]
-  graph_node: A, first: filterlib.Filter, /, *, graph: bool | None = None,
-) -> tuple[GraphDef[A], State]: ...
+def split(
+  graph_node: NodeT, first: type[VariableT], /, *, graph: bool | None = None,
+) -> tuple[GraphDef[NodeT], State[PathParts, VariableT]]: ...
 @tp.overload
-def split(  # type: ignore[invalid-annotation]
-  graph_node: A,
-  first: filterlib.Filter,
-  second: filterlib.Filter,
+def split(
+  graph_node: NodeT, first: filterlib.Filter, /, *, graph: bool | None = None,
+) -> tuple[GraphDef[NodeT], State[PathParts, tp.Any]]: ...
+@tp.overload
+def split(
+  graph_node: NodeT,
+  first: type[VariableT],
+  second: type[variablelib.Variable[tp.Any]],
   /,
   *filters: filterlib.Filter,
   graph: bool | None = None,
 ) -> tuple[
-  GraphDef[A],
-  State,
-  tpe.Unpack[tuple[State, ...]],
+  GraphDef[NodeT],
+  State[PathParts, tp.Any],
+  tpe.Unpack[tuple[State[PathParts, tp.Any], ...]],
 ]: ...
-def split(  # type: ignore[invalid-annotation]
-  node: A, *filters: filterlib.Filter, graph: bool | None = None,
+def split(
+  node: NodeT, *filters: filterlib.Filter, graph: bool | None = None,
 ) -> tuple[
-  GraphDef[A],
-  State,
-  tpe.Unpack[tuple[State, ...]],
+  GraphDef[NodeT],
+  State[PathParts, tp.Any],
+  tpe.Unpack[tuple[State[PathParts, tp.Any], ...]],
 ]:
   """Split a graph node into a :class:`GraphDef` and one or more :class:`State`s. State is
   a ``Mapping`` from strings or integers to ``Variables``, Arrays or nested States. GraphDef
@@ -2512,23 +2518,25 @@ def update(node, state: tp.Any, /, *states: tp.Any) -> None:
 
 
 @tp.overload
-def state(node, /, *, graph: bool | None = None) -> State: ...
+def state(node: NodeT, /, *, graph: bool | None = None) -> State[PathParts, tp.Any]: ...
 @tp.overload
-def state(node, first: filterlib.Filter, /, *, graph: bool | None = None) -> State: ...
+def state(node: NodeT, first: type[VariableT], /, *, graph: bool | None = None) -> State[PathParts, VariableT]: ...
+@tp.overload
+def state(node: NodeT, first: filterlib.Filter, /, *, graph: bool | None = None) -> State[PathParts, tp.Any]: ...
 @tp.overload
 def state(
-  node,
-  first: filterlib.Filter,
-  second: filterlib.Filter,
+  node: NodeT,
+  first: type[VariableT],
+  second: type[variablelib.Variable[tp.Any]],
   /,
   *filters: filterlib.Filter,
   graph: bool | None = None,
-) -> tuple[State, ...]: ...
+) -> tuple[State[PathParts, tp.Any], ...]: ...
 def state(
-  node,
+  node: NodeT,
   *filters: filterlib.Filter,
   graph: bool | None = None,
-) -> tp.Union[State, tuple[State, ...]]:
+) -> tp.Union[State[PathParts, tp.Any], tuple[State[PathParts, tp.Any], ...]]:
   """Similar to :func:`split` but only returns the :class:`State`'s indicated by the filters.
 
   Example usage::
@@ -2567,7 +2575,7 @@ def state(
   _, flat_state = flatten(node, graph=graph)
   state = flat_state.to_nested_state()
 
-  states: State | tuple[State, ...]
+  states: State[PathParts, tp.Any] | tuple[State[PathParts, tp.Any], ...]
   if len(filters) == 0:
     states = state  # type: ignore[assignment]
   elif len(filters) == 1:
@@ -3135,8 +3143,8 @@ def set_metadata(
 
 
 def iter_graph(
-  node: tp.Any, /, *, graph: bool | None = None,
-) -> tp.Iterator[tuple[PathParts, tp.Any]]:
+  node: NodeT, /, *, graph: bool | None = None,
+) -> tp.Iterator[tuple[PathParts, variablelib.Variable[tp.Any] | tp.Any]]:
   """Iterates over all nested nodes and leaves of the given graph node, including the current node.
 
   ``iter_graph`` creates a generator that yields path and value pairs, where the

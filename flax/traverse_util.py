@@ -57,8 +57,8 @@ import abc
 import copy
 import dataclasses
 import warnings
-from typing import Any
-from collections.abc import Callable
+from typing import Any, Callable, overload
+from collections.abc import Mapping
 
 import jax
 
@@ -101,7 +101,28 @@ def _flatten(xs, prefix, keep_empty_nodes, is_leaf, sep):
   return result
 
 
-def flatten_dict(xs, keep_empty_nodes=False, is_leaf=None, sep=None):
+@overload
+def flatten_dict(
+  xs: Mapping[Any, Any],
+  keep_empty_nodes: bool = False,
+  is_leaf: Callable[[tuple[Any, ...], Any], bool] | None = None,
+  sep: None = None,
+) -> dict[tuple[Any, ...], Any]: ...
+
+@overload
+def flatten_dict(
+  xs: Mapping[Any, Any],
+  keep_empty_nodes: bool = False,
+  is_leaf: Callable[[tuple[Any, ...], Any], bool] | None = None,
+  sep: str = ...,
+) -> dict[str, Any]: ...
+
+def flatten_dict(
+  xs: Mapping[Any, Any],
+  keep_empty_nodes: bool = False,
+  is_leaf: Callable[[tuple[Any, ...], Any], bool] | None = None,
+  sep: str | None = None,
+) -> dict[Any, Any]:
   """Flatten a nested dictionary.
 
   The nested keys are flattened to a tuple.
@@ -141,7 +162,22 @@ def flatten_dict(xs, keep_empty_nodes=False, is_leaf=None, sep=None):
   return _flatten(xs, (), keep_empty_nodes, is_leaf, sep)
 
 
-def unflatten_dict(xs, sep=None):
+@overload
+def unflatten_dict(
+  xs: Mapping[tuple[Any, ...], Any],
+  sep: None = None,
+) -> dict[Any, Any]: ...
+
+@overload
+def unflatten_dict(
+  xs: Mapping[str, Any],
+  sep: str,
+) -> dict[Any, Any]: ...
+
+def unflatten_dict(
+  xs: Mapping[Any, Any],
+  sep: str | None = None,
+) -> dict[Any, Any]:
   """Unflatten a dictionary.
 
   See ``flatten_dict``
@@ -163,7 +199,7 @@ def unflatten_dict(xs, sep=None):
     The nested dictionary.
   """
   assert isinstance(xs, dict), f'input is not a dict; it is a {type(xs)}'
-  result = {}
+  result: dict[Any, Any] = {}
   for path, value in xs.items():
     if sep is not None:
       path = path.split(sep)
