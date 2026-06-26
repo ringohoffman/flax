@@ -25,6 +25,7 @@ from typing import (
   TypeGuard,
   TypeVar,
   Union,
+  runtime_checkable,
 )
 from collections.abc import Iterator
 from collections.abc import Callable, Hashable, Mapping, Sequence
@@ -54,10 +55,64 @@ class Key(Hashable, Protocol):
 def is_key_like(x: Any) -> TypeGuard[Key]:
   return hasattr(x, '__hash__') and hasattr(x, '__lt__')
 
+@runtime_checkable
+class DictKeyLike(Key, Protocol):
+  key: Any
+
+
+@runtime_checkable
+class GetAttrKeyLike(Key, Protocol):
+  name: str
+
+
+@runtime_checkable
+class SequenceKeyLike(Key, Protocol):
+  idx: int
+
+
+@runtime_checkable
+class FlattenedIndexKeyLike(Key, Protocol):
+  key: Any
+
 Path = str
 PathParts = tuple[Key, ...]
 
 Leaf = Any
+
+
+# Compilation
+
+@runtime_checkable
+class XlaComputationLike(Protocol):
+  """Structural protocol for XLA compiler IR objects."""
+
+  def as_hlo_text(self) -> str: ...
+  def as_hlo_dot_graph(self) -> str: ...
+  def as_serialized_hlo_module_proto(self) -> bytes: ...
+
+
+@runtime_checkable
+class CompiledLike(Protocol):
+  """Structural protocol shared by ``jax.stages.Compiled`` and
+  ``flax.nnx.Compiled``.
+  """
+
+  def as_text(self) -> str | None: ...
+  def memory_analysis(self) -> object: ...
+
+
+@runtime_checkable
+class LoweredLike(Protocol):
+  """Structural protocol shared by ``jax.stages.Lowered`` and
+  ``flax.nnx.Lowered``.
+  """
+
+  def as_text(self) -> str: ...
+  def compile(self) -> CompiledLike: ...
+  def compiler_ir(self, *, dialect: str | None = None) -> object: ...
+  def cost_analysis(
+    self,
+  ) -> list[dict[str, float]] | dict[str, float] | None: ...
 
 
 # Linear
