@@ -21,6 +21,7 @@ import operator
 import typing as tp
 
 import jax
+import jax.stages
 from jax.sharding import AbstractMesh, Mesh, PartitionSpec
 
 from flax.nnx import (
@@ -149,14 +150,6 @@ class JitFn:
 
 
 @tp.overload
-
-
-
-
-
-
-
-
 def jit(
   *,
   in_shardings: tp.Any = None,
@@ -171,16 +164,9 @@ def jit(
   inline: bool = False,
   graph: bool | None = None,
   graph_updates: bool | None = None,
+  compiler_options: jax.stages.CompilerOptions | None = None,
 ) -> tp.Callable[[tp.Callable[P, R]], JitWrapped[P, R]]: ...
 @tp.overload
-
-
-
-
-
-
-
-
 def jit(
   fun: tp.Callable[P, R],
   *,
@@ -196,6 +182,7 @@ def jit(
   inline: bool = False,
   graph: bool | None = None,
   graph_updates: bool | None = None,
+  compiler_options: jax.stages.CompilerOptions | None = None,
 ) -> JitWrapped[P, R]: ...
 def jit(
   fun: tp.Callable[P, R] | Missing = MISSING,
@@ -212,6 +199,7 @@ def jit(
   inline: bool = False,
   graph: bool | None = None,
   graph_updates: bool | None = None,
+  compiler_options: jax.stages.CompilerOptions | None = None,
 ) -> JitWrapped[P, R] | tp.Callable[[tp.Callable[P, R]], JitWrapped[P, R]]:
   """
   Lifted version of ``jax.jit`` that can handle Modules / graph nodes as
@@ -353,6 +341,11 @@ def jit(
       the overhead of the graph protocol. Tree-mode is faster but does not
       support shared ``Variable`` references or returning mutable array
       references from the jitted function.
+    compiler_options: Optional compiler option overrides for TPU compilation.
+      These options are passed down to the JAX compilation backend via
+      ``CompileOptions.env_option_overrides``. It only accepts options
+      defined in ``jax.stages.CompilerOptions`` (e.g., SPMD windowed einsum
+      thresholds, scoped vmem limits, etc.).
 
   Returns:
     A wrapped version of ``fun``, set up for just-in-time compilation.
@@ -377,6 +370,7 @@ def jit(
       inline=inline,
       graph=graph,
       graph_updates=graph_updates,
+      compiler_options=compiler_options,
     )  # type: ignore[return-value]
   fun_unbound, _, was_bound = _resolve_bound_callable(fun)
   if was_bound:
@@ -393,13 +387,17 @@ def jit(
 
   wrapped_cls: tp.Any
   if graph and graph_updates:
-    wrapped_cls = JitWrapped
+    wrapped_cls = functools.partial(
+      JitWrapped,
+      compiler_options=compiler_options,
+    )
   else:
     wrapped_cls = functools.partial(
         SimpleJitWrapped,
         partial_args=(),
         graph=graph,
         update_shardings=update_shardings,
+        compiler_options=compiler_options,
     )
   return wrapped_cls(
     fun_unbound,
@@ -526,6 +524,7 @@ class SimpleJitWrapped(tp.Generic[P, R]):
       partial_args: tuple[tp.Any, ...],
       graph: bool,
       update_shardings: tuple[tp.Any, ...],
+      compiler_options: jax.stages.CompilerOptions | None = None,
   ):
     functools.update_wrapper(self, fun)
     self.fun: tp.Callable[P, R] = fun
@@ -570,6 +569,7 @@ class SimpleJitWrapped(tp.Generic[P, R]):
         device=device,
         backend=backend,
         inline=inline,
+        compiler_options=compiler_options,
     )
 
   def _maybe_to_tree(self, args, kwargs):
@@ -938,6 +938,7 @@ class JitWrapped(tp.Generic[P, R]):
     device: tp.Optional[jax.Device] = None,
     backend: tp.Optional[str] = None,
     inline: bool = False,
+    compiler_options: jax.stages.CompilerOptions | None = None,
   ):
     functools.update_wrapper(self, fun)
     self.fun: tp.Callable[P, R] = fun
@@ -982,6 +983,7 @@ class JitWrapped(tp.Generic[P, R]):
       device=device,
       backend=backend,
       inline=inline,
+      compiler_options=compiler_options,
     )
     self.in_shardings = in_shardings
     self.out_shardings = out_shardings

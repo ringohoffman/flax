@@ -31,6 +31,7 @@ from collections.abc import Iterator
 from collections.abc import Callable, Hashable, Mapping, Sequence
 
 import jax
+import jax.stages
 import jax.numpy as jnp
 import numpy as np
 from flax.core import FrozenDict
@@ -108,7 +109,9 @@ class LoweredLike(Protocol):
   """
 
   def as_text(self) -> str: ...
-  def compile(self) -> CompiledLike: ...
+  def compile(
+    self, compiler_options: jax.stages.CompilerOptions | None = None
+  ) -> CompiledLike: ...
   def compiler_ir(self, *, dialect: str | None = None) -> object: ...
   def cost_analysis(
     self,
