@@ -42,6 +42,7 @@ from flax.typing import MISSING, Missing, PathParts
 
 F = tp.TypeVar('F', bound=tp.Callable[..., tp.Any])
 P = tp.ParamSpec('P')
+Q = tp.ParamSpec('Q')
 R = tp.TypeVar('R')
 Specs = tp.Any
 AxisName = tp.Hashable
@@ -990,8 +991,23 @@ class JitWrapped(tp.Generic[P, R]):
     self.kwarg_shardings = kwarg_shardings
     self.static_argnums = static_argnums
 
-  # implement descriptor protocol so that we can use this as a method
-  def __get__(self, obj, objtype=None):
+  @tp.overload
+  def __get__(
+    self: JitWrapped[Q, R],
+    obj: None,
+    objtype: type | None = None,
+  ) -> JitWrapped[Q, R]: ...
+  @tp.overload
+  def __get__(
+    self: JitWrapped[tp.Concatenate[tp.Any, Q], R],
+    obj: object,
+    objtype: type | None = None,
+  ) -> JitWrapped[Q, R]: ...
+  def __get__(
+      self,
+      obj: object | None,
+      objtype: type | None = None,
+  ) -> JitWrapped[Q, R]:
     if obj is None:
       return self
     return functools.partial(self, obj)
