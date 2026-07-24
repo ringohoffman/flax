@@ -15,7 +15,7 @@
 import typing as tp
 
 import flax.core.spmd as core_spmd
-from flax.nnx import variablelib, graphlib
+from flax.nnx import variablelib, graphlib, statelib
 from flax.nnx.transforms.transforms import eval_shape
 from flax.typing import (
   Sharding,
@@ -23,8 +23,10 @@ from flax.typing import (
 import jax
 from jax.sharding import PartitionSpec
 from flax.nnx.deprecations import deprecated
+from flax.typing import PyTree
 
 A = tp.TypeVar('A')
+K = tp.TypeVar('K')
 F = tp.TypeVar('F', bound=tp.Callable[..., tp.Any])
 PARTITION_NAME = 'partition_name'
 
@@ -161,8 +163,37 @@ def get_partition_spec(tree: A) -> A:
     f, tree, is_leaf=lambda x: isinstance(x, variablelib.Variable)
   )
 
+@tp.overload
+def get_named_sharding(
+    tree: (
+        statelib.State[K, variablelib.Variable[jax.Array]]
+        | statelib.State[K, variablelib.Variable[jax.ShapeDtypeStruct]]
+    ),
+    mesh: jax.sharding.Mesh | jax.sharding.AbstractMesh,
+) -> statelib.State[
+  K, variablelib.Variable[jax.sharding.NamedSharding]
+]: ...
 
-def get_named_sharding(tree: A, mesh: jax.sharding.Mesh) -> A:
+@tp.overload
+def get_named_sharding(
+    tree: (
+        PyTree[variablelib.Variable[jax.Array]]
+        | PyTree[variablelib.Variable[jax.ShapeDtypeStruct]]
+    ),
+    mesh: jax.sharding.Mesh | jax.sharding.AbstractMesh,
+) -> PyTree[variablelib.Variable[jax.sharding.NamedSharding]]: ...
+
+def get_named_sharding(
+    tree: (
+        PyTree[variablelib.Variable[jax.Array]]
+        | PyTree[variablelib.Variable[jax.ShapeDtypeStruct]]
+        | statelib.State[K, variablelib.Variable[jax.Array]]
+        | statelib.State[K, variablelib.Variable[jax.ShapeDtypeStruct]]
+    ),
+    mesh: jax.sharding.Mesh | jax.sharding.AbstractMesh,
+) -> PyTree[variablelib.Variable[jax.sharding.NamedSharding]] | statelib.State[
+  K, variablelib.Variable[jax.sharding.NamedSharding]
+]:
   spec = get_partition_spec(tree)
   sharding = jax.tree.map(lambda p: jax.sharding.NamedSharding(mesh, p), spec)
   return sharding

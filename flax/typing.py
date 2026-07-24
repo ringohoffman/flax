@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import abc
 from collections import deque
+import dataclasses
 import functools
 from functools import partial
 from typing import (
@@ -35,9 +36,10 @@ import jax.stages
 import jax.numpy as jnp
 import numpy as np
 from flax.core import FrozenDict
+from typing_extensions import TypeIs
 
-import dataclasses
 import jax.tree_util as jtu
+from jax._src.tree_util import PyTree as PyTree
 
 
 # General
@@ -48,6 +50,7 @@ RNGSequences = dict[str, PRNGKey]
 Dtype = Union[jax.typing.DTypeLike, Any]
 Shape = Sequence[int]
 K = TypeVar('K')
+T = TypeVar('T')
 
 class Key(Hashable, Protocol):
   def __lt__(self: K, value: K, /) -> bool:
@@ -79,6 +82,36 @@ Path = str
 PathParts = tuple[Key, ...]
 
 Leaf = Any
+
+FlatPyTree = dict[PathParts, T]
+
+
+def is_flat_pytree_of(
+    val: object,
+    leaf_type: type[T],
+) -> TypeIs[FlatPyTree[T]]:
+  """TypeGuard narrowing val to FlatPyTree[T] (dict[tuple[Key, ...], T])."""
+  if not isinstance(val, dict):
+    return False
+  if not val:
+    return True
+  sample_key, sample_val = next(iter(val.items()))
+  return isinstance(sample_key, tuple) and isinstance(sample_val, leaf_type)
+
+
+def is_pytree_of(
+    val: object,
+    leaf_type: type[T],
+) -> TypeIs[PyTree[T]]:
+  """TypeGuard narrowing val to PyTree[T]."""
+  if isinstance(val, leaf_type):
+    return True
+  if isinstance(val, (Mapping, Sequence)) and not isinstance(val, (str, bytes)):
+    if not val:
+      return True
+    elems = val.values() if isinstance(val, Mapping) else val
+    return all(is_pytree_of(v, leaf_type) for v in elems)
+  return False
 
 
 # Compilation

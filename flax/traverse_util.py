@@ -53,20 +53,24 @@ Traversals never mutate the original data. Therefore, an update essentially
 returns a copy of the data including the provided updates.
 """
 
+from __future__ import annotations
+
 import abc
+from collections.abc import Mapping
 import copy
 import dataclasses
+from typing import Any, Callable, TypeVar, overload
 import warnings
-from typing import Any, Callable, overload
-from collections.abc import Mapping
-
-import jax
 
 import flax
 from flax.core.scope import VariableDict
-from flax.typing import PathParts
+from flax.typing import FlatPyTree, PathParts
+import jax
+from jax._src.tree_util import PyTree
 
 from . import struct
+
+V = TypeVar('V')
 
 
 # the empty node is a struct.dataclass to be compatible with JAX.
@@ -103,19 +107,23 @@ def _flatten(xs, prefix, keep_empty_nodes, is_leaf, sep):
 
 @overload
 def flatten_dict(
-  xs: Mapping[Any, Any],
-  keep_empty_nodes: bool = False,
-  is_leaf: Callable[[tuple[Any, ...], Any], bool] | None = None,
-  sep: None = None,
-) -> dict[tuple[Any, ...], Any]: ...
+    xs: PyTree[V],
+    keep_empty_nodes: bool = ...,
+    is_leaf: Callable[[tuple[Any, ...], Any], bool] | None = ...,
+    sep: None = ...,
+) -> FlatPyTree[V]:
+  ...
+
 
 @overload
 def flatten_dict(
-  xs: Mapping[Any, Any],
-  keep_empty_nodes: bool = False,
-  is_leaf: Callable[[tuple[Any, ...], Any], bool] | None = None,
-  sep: str = ...,
-) -> dict[str, Any]: ...
+    xs: PyTree[V],
+    keep_empty_nodes: bool = ...,
+    is_leaf: Callable[[tuple[Any, ...], Any], bool] | None = ...,
+    sep: str = ...,
+) -> dict[str, V]:
+  ...
+
 
 def flatten_dict(
   xs: Mapping[Any, Any],
@@ -164,15 +172,27 @@ def flatten_dict(
 
 @overload
 def unflatten_dict(
-  xs: Mapping[tuple[Any, ...], Any],
-  sep: None = None,
-) -> dict[Any, Any]: ...
+    xs: FlatPyTree[V],
+    sep: None = None,
+) -> PyTree[V]:
+  ...
+
 
 @overload
 def unflatten_dict(
-  xs: Mapping[str, Any],
-  sep: str,
-) -> dict[Any, Any]: ...
+    xs: Mapping[tuple[Any, ...], V],
+    sep: None = None,
+) -> dict[Any, V]:
+  ...
+
+
+@overload
+def unflatten_dict(
+    xs: Mapping[str, V],
+    sep: str,
+) -> dict[Any, V]:
+  ...
+
 
 def unflatten_dict(
   xs: Mapping[Any, Any],

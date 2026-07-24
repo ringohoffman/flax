@@ -25,7 +25,7 @@ from flax import core
 from flax import jax_utils
 from flax import linen
 from flax import serialization
-from flax import traverse_util
+from flax import traverse_util as traverse_util
 
 from flax import version
 __version__: str = version.__version__

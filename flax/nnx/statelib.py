@@ -21,17 +21,18 @@ import warnings
 
 import jax
 import jax.tree_util as jtu
+from jax._src.tree_util import PyTree
 import treescope  # type: ignore[import-not-found,import-untyped]
 
 from flax.nnx import filterlib, reprlib, traversals, variablelib
-from flax.typing import Key, PathParts
+from flax.typing import Key, PathParts, PyTree
 
 A = tp.TypeVar('A')
 K = tp.TypeVar('K', bound=tp.Hashable)
 S = tp.TypeVar('S', bound='State')
 V = tp.TypeVar('V')
 
-ExtractValueFn = tp.Callable[[tp.Any], tp.Any]
+ExtractValueFn = tp.Callable[[variablelib.Variable[V]], V]
 SetValueFn = tp.Callable[[V, tp.Any], V]
 
 
@@ -248,7 +249,7 @@ class State(MutableMapping[K, V], reprlib.Representable):
       super().__setattr__('_mapping', _mapping)
 
   @property
-  def raw_mapping(self) -> dict[K, tp.Mapping[K, tp.Any] | V]:
+  def raw_mapping(self) -> PyTree[V]:
     return self._mapping  # type: ignore
 
   def __contains__(self, key) -> bool:
@@ -516,8 +517,9 @@ def from_flat_state(
 
 
 def to_pure_dict(
-  state: State, extract_fn: ExtractValueFn | None = None
-) -> dict[str, tp.Any]:
+  state: State[K, variablelib.Variable[V]],
+  extract_fn: ExtractValueFn | None = None
+) -> PyTree[V]:
   """Convert :class:`State` object into pure dictionary state.
 
   Arguments:
