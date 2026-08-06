@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import typing as tp
-from collections.abc import MutableMapping
+from collections.abc import Mapping, MutableMapping, Sequence
 from functools import partial
 import warnings
 
@@ -31,6 +31,9 @@ A = tp.TypeVar('A')
 K = tp.TypeVar('K', bound=tp.Hashable)
 S = tp.TypeVar('S', bound='State')
 V = tp.TypeVar('V')
+V2 = tp.TypeVar('V2')
+V3 = tp.TypeVar('V3')
+R = tp.TypeVar('R')
 
 ExtractValueFn = tp.Callable[[variablelib.Variable[V]], V]
 SetValueFn = tp.Callable[[V, tp.Any], V]
@@ -153,28 +156,34 @@ class FlatState(tp.Sequence[tuple[PathParts, V]], reprlib.Representable):
     return flat_states  # type: ignore
 
   @tp.overload
-  def filter(self, first: filterlib.Filter, /) -> FlatState[V]: ...
+  def filter(self, first: filterlib.Filter[V2], /) -> FlatState[V2]: ...
 
   @tp.overload
   def filter(
     self,
-    first: filterlib.Filter,
-    second: filterlib.Filter,
+    first: filterlib.Filter[V2],
+    second: filterlib.Filter[V3],
     /,
-    *filters: filterlib.Filter,
-  ) -> tuple[FlatState[V], ...]: ...
+    *filters: filterlib.Filter[tp.Any],
+  ) -> tuple[
+    FlatState[V2],
+    FlatState[V3],
+    tp.Unpack[tuple[FlatState[tp.Any], ...]],
+  ]: ...
 
   def filter(
     self,
-    first: filterlib.Filter,
+    first: filterlib.Filter[V2],
     /,
-    *filters: filterlib.Filter,
-  ) -> tp.Union[FlatState[V], tuple[FlatState[V], ...]]:
+    *filters: filterlib.Filter[tp.Any],
+  ) -> tp.Union[
+    FlatState[V2],
+    tuple[FlatState[V2], tp.Unpack[tuple[FlatState[tp.Any], ...]]],
+  ]:
     *flat_states_, _rest = _split_state(self, first, *filters)
 
     assert len(flat_states_) == len(filters) + 1
 
-    flat_states: FlatState[V] | tuple[FlatState[V], ...]
     if len(flat_states_) == 1:
       flat_states = flat_states_[0]
     else:
@@ -199,7 +208,9 @@ class FlatState(tp.Sequence[tuple[PathParts, V]], reprlib.Representable):
     )
 
 
-def _flat_state_pytree_flatten(x: FlatState[V]):
+def _flat_state_pytree_flatten(
+    x: FlatState[V]
+) -> tuple[list[V], tuple[PathParts, ...]]:
   return x._values, x._keys
 
 
@@ -219,20 +230,22 @@ jax.tree_util.register_pytree_node(
 )
 
 
+StateMapping: tp.TypeAlias = (
+  V | Mapping[K, "StateMapping[K, V]"] | Sequence["StateMapping[K, V]"]
+)
+
+
 class State(MutableMapping[K, V], reprlib.Representable):
   """A pytree-like ``Mapping`` with hashable and comparable keys.
   """
 
   def __init__(
     self,
-    mapping: tp.Union[
-      tp.Mapping[K, tp.Mapping | V],
-      tp.Iterator[tuple[K, tp.Mapping | V]],
-    ],
+    mapping: Mapping[K, StateMapping[K, V]],
     /,
     *,
     _copy: bool = True,
-  ):
+  ) -> None:
     if _copy:
       _mapping = dict(mapping)
     else:
@@ -249,24 +262,24 @@ class State(MutableMapping[K, V], reprlib.Representable):
       super().__setattr__('_mapping', _mapping)
 
   @property
-  def raw_mapping(self) -> PyTree[V]:
+  def raw_mapping(self) -> StateMapping[K, V]:
     return self._mapping  # type: ignore
 
   def __contains__(self, key) -> bool:
     return key in self._mapping
 
-  def __getitem__(self, key: K) -> State | V:  # type: ignore
+  def __getitem__(self, key: K) -> State[K, V] | V:  # type: ignore
     value = self._mapping[key]
     if isinstance(value, dict):
       return type(self)(value, _copy=False)
     return value  # type: ignore[return-value]
 
-  def __getattr__(self, key: K) -> State | V:  # type: ignore[misc]
+  def __getattr__(self, key: K) -> State[K, V] | V:  # type: ignore[misc]
     if '_mapping' not in vars(self) or key not in self._mapping:
       raise AttributeError(f"No attribute '{key}' in State")
     return self[key]
 
-  def __setitem__(self, key: K, value: State | V) -> None:
+  def __setitem__(self, key: K, value: State[K, V] | V) -> None:
     if key == '__orig_class__':
       object.__setattr__(self, key, value)  # type: ignore
     elif isinstance(value, State):
@@ -306,7 +319,7 @@ class State(MutableMapping[K, V], reprlib.Representable):
       subtree_renderer=subtree_renderer,
     )
 
-  def map(self, f: tp.Callable[[tuple, V], V]) -> State[K, V]:
+  def map(self, f: tp.Callable[[K, V], V2]) -> State[K, V2]:
     warnings.warn(
       '`flax.nnx.State` will be deprecated and be replaced by the built-in '
       'Python dict. Please use the equivalent `nnx.map_state` instead.',
@@ -336,8 +349,8 @@ class State(MutableMapping[K, V], reprlib.Representable):
     return from_flat_state(flat_state, cls=cls)
 
   def to_pure_dict(self,
-                   extract_fn: ExtractValueFn | None = None
-                   ) -> dict[str, tp.Any]:
+                   extract_fn: ExtractValueFn[V2] | None = None
+                   ) -> PyTree[V2]:
     warnings.warn(
       '`flax.nnx.State` will be deprecated and be replaced by the built-in '
       'Python dict. Please use the equivalent `nnx.to_pure_dict` instead.',
@@ -357,16 +370,20 @@ class State(MutableMapping[K, V], reprlib.Representable):
     return replace_by_pure_dict(self, pure_dict, replace_fn)
 
   @tp.overload
-  def split(self, first: filterlib.Filter, /) -> State[K, V]: ...
+  def split(self, first: filterlib.Filter[V2], /) -> State[K, V2]: ...
 
   @tp.overload
   def split(
     self,
-    first: filterlib.Filter,
-    second: filterlib.Filter,
+    first: filterlib.Filter[V2],
+    second: filterlib.Filter[V3],
     /,
-    *filters: filterlib.Filter,
-  ) -> tuple[State[K, V], ...]: ...
+    *filters: filterlib.Filter[tp.Any],
+  ) -> tuple[
+    State[K, V2],
+    State[K, V3],
+    tp.Unpack[tuple[State[K, tp.Any], ...]],
+  ]: ...
 
   @tp.overload
   def split(
@@ -386,25 +403,32 @@ class State(MutableMapping[K, V], reprlib.Representable):
   @tp.overload
   def filter(
     self,
-    first: filterlib.Filter,
+    first: filterlib.Filter[V2],
     /,
-  ) -> State[K, V]: ...
+  ) -> State[K, V2]: ...
 
   @tp.overload
   def filter(
     self,
-    first: filterlib.Filter,
-    second: filterlib.Filter,
+    first: filterlib.Filter[V2],
+    second: filterlib.Filter[V3],
     /,
-    *filters: filterlib.Filter,
-  ) -> tuple[State[K, V], ...]: ...
+    *filters: filterlib.Filter[tp.Any],
+  ) -> tuple[
+    State[K, V2],
+    State[K, V3],
+    tp.Unpack[tuple[State[K, tp.Any], ...]],
+  ]: ...
 
   def filter(
     self,
-    first: filterlib.Filter,
+    first: filterlib.Filter[V2],
     /,
     *filters: filterlib.Filter,
-  ) -> tp.Union[State[K, V], tuple[State[K, V], ...]]:
+  ) -> tp.Union[
+    State[K, V2],
+    tuple[State[K, tp.Any], ...]
+  ]:
     warnings.warn(
       '`flax.nnx.State` will be deprecated and be replaced by the built-in '
       'Python dict. Please use the equivalent `nnx.filter_state` instead.',
@@ -445,13 +469,13 @@ class State(MutableMapping[K, V], reprlib.Representable):
 
 
 
-def _state_flatten_with_keys(x: State):
+def _state_flatten_with_keys(x: State[K, V]):
   items = sorted(x._mapping.items())
   children = [(jtu.DictKey(k), v) for k, v in items]
   return children, tuple(k for k, _ in items)
 
 
-def _state_flatten(x: State):
+def _state_flatten(x: State[K, V]):
   items = sorted(x._mapping.items())
   leaves = [v for _, v in items]
   return leaves, tuple(k for k, _ in items)
@@ -472,7 +496,10 @@ jax.tree_util.register_pytree_with_keys(
   _state_flatten,
 )
 
-def map_state(f: tp.Callable[[tuple, tp.Any], tp.Any], state: State) -> State:
+def map_state(
+    f: tp.Callable[[K, V], R],
+    state: State[K, V],
+) -> State[K, R]:
   """Map ``f`` over :class:`State` object.
 
   Arguments:
@@ -488,7 +515,7 @@ def map_state(f: tp.Callable[[tuple, tp.Any], tp.Any], state: State) -> State:
   return from_flat_state(result)
 
 
-def to_flat_state(state: State) -> FlatState:
+def to_flat_state(state: State[PathParts, V]) -> FlatState[V]:
   """Convert state into flat state
 
   Arguments:
@@ -517,7 +544,7 @@ def from_flat_state(
 
 
 def to_pure_dict(
-  state: State[K, variablelib.Variable[V]],
+  state: State[PathParts, variablelib.Variable[V]],
   extract_fn: ExtractValueFn | None = None
 ) -> PyTree[V]:
   """Convert :class:`State` object into pure dictionary state.
@@ -612,28 +639,47 @@ def replace_by_pure_dict(
 
 
 @tp.overload
-def split_state(state: State, first: filterlib.Filter, /) -> State: ...
-
-
-@tp.overload
 def split_state(
-  state: State,
-  first: filterlib.Filter,
-  second: filterlib.Filter,
+  state: State[K, tp.Any],
+  first: filterlib.Filter[V],
   /,
-  *filters: filterlib.Filter,
-) -> tuple[State, ...]: ...
+) -> State[K, V]: ...
 
 
 @tp.overload
 def split_state(
-  state: State, /, *filters: filterlib.Filter
-) -> tp.Union[State, tuple[State, ...]]: ...
+  state: State[K, tp.Any],
+  first: filterlib.Filter[V],
+  second: filterlib.Filter[V2],
+  /,
+  *filters: filterlib.Filter[tp.Any],
+) -> tuple[
+  State[K, V],
+  State[K, V2],
+  tp.Unpack[tuple[State[K, tp.Any], ...]],
+]: ...
 
 
-def split_state(  # type: ignore[misc]
-  state: State, first: filterlib.Filter, /, *filters: filterlib.Filter
-) -> tp.Union[State, tuple[State, ...]]:
+@tp.overload
+def split_state(
+  state: State[K, tp.Any],
+  /,
+  *filters: filterlib.Filter[tp.Any],
+) -> tp.Union[
+  State[K, V],
+  tuple[State[K, V], tp.Unpack[tuple[State[K, tp.Any], ...]]],
+]: ...
+
+
+def split_state(
+  state: State[K, tp.Any],
+  first: filterlib.Filter[V],
+  /,
+  *filters: filterlib.Filter[tp.Any],
+) -> tp.Union[
+  State[K, V],
+  tuple[State[K, V], tp.Unpack[tuple[State[K, tp.Any], ...]]],
+]:
   """Split a :class:`State` into one or more :class:`State`'s. The
   user must pass at least one ``Filter`` (i.e. :class:`Variable`),
   and the filters must be exhaustive (i.e. they must cover all
@@ -681,28 +727,32 @@ def split_state(  # type: ignore[misc]
 
 @tp.overload
 def filter_state(
-  state: State,
-  first: filterlib.Filter,
+  state: State[K, tp.Any],
+  first: filterlib.Filter[V],
   /,
-) -> State: ...
+) -> State[K, V]: ...
 
 
 @tp.overload
 def filter_state(
   state: State,
-  first: filterlib.Filter,
-  second: filterlib.Filter,
+  first: filterlib.Filter[V],
+  second: filterlib.Filter[V2],
   /,
-  *filters: filterlib.Filter,
-) -> tuple[State, ...]: ...
+  *filters: filterlib.Filter[tp.Any],
+) -> tuple[
+  State[K, V],
+  State[K, V2],
+  tp.Unpack[tuple[State[K, tp.Any], ...]],
+]: ...
 
 
 def filter_state(
-  state: State,
-  first: filterlib.Filter,
+  state: State[K, tp.Any],
+  first: filterlib.Filter[V],
   /,
-  *filters: filterlib.Filter,
-) -> tp.Union[State, tuple[State, ...]]:
+  *filters: filterlib.Filter[tp.Any],
+) -> tp.Union[State[K, V], tuple[State[K, tp.Any], ...]]:
   """Filter a ``State`` into one or more ``State``'s. The
   user must pass at least one ``Filter`` (i.e. :class:`Variable`).
   This method is similar to :meth:`split() <flax.nnx.State.state.split>`,
@@ -806,8 +856,8 @@ def diff(state: State, other: State) -> State:
 
 
 def _split_state(
-  flat_state: FlatState[V],
-  *filters: filterlib.Filter,
+  flat_state: FlatState[tp.Any],
+  *filters: filterlib.Filter[V],
 ) -> tuple[FlatState[V], ...]:
   for i, filter_ in enumerate(filters):
     if filter_ in (..., True) and i != len(filters) - 1:

@@ -22,14 +22,15 @@ if tp.TYPE_CHECKING:
 else:
   ellipsis = tp.Any
 
-Predicate = tp.Callable[[PathParts, tp.Any], bool]
+T = tp.TypeVar('T')
+Predicate = tp.Callable[[PathParts, tp.Any], tp.TypeGuard[T]]
 
-FilterLiteral = tp.Union[type, str, Predicate, bool, ellipsis, None]
-Filter = tp.Union[FilterLiteral, tuple['Filter', ...], list['Filter']]
+FilterLiteral = tp.Union[type[T], str, Predicate[T], bool, ellipsis, None]
+Filter = tp.Union[FilterLiteral[T], tuple['Filter[T]', ...], list['Filter[T]']]
 
 
 
-def to_predicate(filter: Filter) -> Predicate:
+def to_predicate(filter: Filter[T]) -> Predicate[T]:
   """Converts a Filter to a predicate function.
   See `Using Filters <https://flax.readthedocs.io/en/latest/guides/filters_guide.html>`__.
   """
