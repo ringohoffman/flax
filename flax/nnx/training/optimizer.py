@@ -157,7 +157,7 @@ class Optimizer(tp.Generic[M], Pytree):
     self.step = OptState(jnp.array(0, dtype=jnp.uint32))
     self.tx = tx
     self.opt_state = nnx.data(
-      to_opt_state(tx.init(nnx.state(model, wrt, graph=graph)))
+      to_opt_state(jax.jit(tx.init)(nnx.state(model, wrt, graph=graph)))
     )
     self.wrt = wrt
 
