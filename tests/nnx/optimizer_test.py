@@ -97,6 +97,36 @@ class TestOptimizer(parameterized.TestCase):
       jax.sharding.PartitionSpec('a', 'b'),
     )
 
+  def test_optimizer_avoids_redundant_resharding(self):
+    mesh = jax.make_mesh(
+        (1, 1),
+        ('a', 'b'),
+        axis_types=(jax.sharding.AxisType.Auto,) * 2,
+    )
+    with jax.set_mesh(mesh):
+      model = nnx.Linear(
+          2,
+          3,
+          rngs=nnx.Rngs(0),
+          kernel_init=nnx.with_partitioning(
+              nnx.initializers.lecun_normal(),
+              sharding=('a', 'b'),
+          ),
+          use_bias=False,
+      )
+      # When sharding already matches, _apply_sharding must short-circuit
+      # to prevent eager execution of jit__identity_fn on large tensors.
+      arr = jax.lax.with_sharding_constraint(
+          jnp.ones((2, 3)),
+          jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('a', 'b')),
+      )
+      target_sharding = jax.sharding.NamedSharding(
+          mesh, jax.sharding.PartitionSpec('a', 'b')
+      )
+      from flax.core import spmd
+      result = spmd._apply_sharding(arr, target_sharding, mesh)
+      self.assertIs(result, arr)
+
   @parameterized.product(
     module_cls=[nnx.Linear, Model],
     jit_decorator=[lambda f: f, nnx.compat.jit, jax.jit],

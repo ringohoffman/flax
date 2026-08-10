@@ -57,6 +57,8 @@ def apply_rules(sharding, sharding_rules):
 def _apply_sharding(value, sharding, mesh):
   if isinstance(sharding, Format):
     return jax.lax.with_sharding_constraint(value, sharding)
+  if hasattr(value, 'sharding') and value.sharding == sharding:
+    return value
   if mesh.are_all_axes_explicit:
     return jax.sharding.reshard(value, sharding)
   elif mesh.are_all_axes_auto:
