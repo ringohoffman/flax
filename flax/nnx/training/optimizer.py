@@ -156,9 +156,35 @@ class Optimizer(tp.Generic[M], Pytree):
     self.graph = graph
     self.step = OptState(jnp.array(0, dtype=jnp.uint32))
     self.tx = tx
-    self.opt_state = nnx.data(
-      to_opt_state(jax.jit(tx.init)(nnx.state(model, wrt, graph=graph)))
-    )
+    model_state = nnx.state(model, wrt, graph=graph)
+    mesh = jax.sharding.get_mesh()
+    if mesh is not None and not mesh.empty:
+      abstract_opt = jax.eval_shape(tx.init, model_state)
+
+      def _extract_sharding(x: tp.Any) -> jax.sharding.Sharding:
+        if isinstance(x, Variable):
+          meta = x.get_metadata()
+          shd = meta.get('optimizer_sharding', meta.get('out_sharding', None))
+          if isinstance(shd, jax.sharding.PartitionSpec):
+            return jax.sharding.NamedSharding(mesh, shd)
+          elif isinstance(shd, tuple):
+            return jax.sharding.NamedSharding(
+                mesh, jax.sharding.PartitionSpec(*shd)
+            )
+          elif isinstance(shd, jax.sharding.Sharding):
+            return shd
+        return jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+
+      out_shardings = jax.tree.map(
+          _extract_sharding,
+          abstract_opt,
+          is_leaf=lambda x: isinstance(x, Variable),
+      )
+      init_fn = jax.jit(tx.init, out_shardings=out_shardings)
+    else:
+      init_fn = jax.jit(tx.init)
+
+    self.opt_state = nnx.data(to_opt_state(init_fn(model_state)))
     self.wrt = wrt
 
   if not tp.TYPE_CHECKING:

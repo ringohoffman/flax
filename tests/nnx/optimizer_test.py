@@ -20,6 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 
+
 def assert_equal(path, x, y):
   np.testing.assert_array_equal(x, y, err_msg=f'Mismatch at path: {path}')
 
@@ -91,10 +92,12 @@ class TestOptimizer(parameterized.TestCase):
     state = nnx.state(optimizer)
     partition_spec = nnx.get_partition_spec(state)
 
-    self.assertEqual(state['opt_state'][0]['mu']['kernel'].out_sharding, ('a', 'b'))
     self.assertEqual(
-      partition_spec['opt_state'][0]['mu']['kernel'].get_value(),
-      jax.sharding.PartitionSpec('a', 'b'),
+        state['opt_state'][0]['mu']['kernel'].out_sharding, ('a', 'b')
+    )
+    self.assertEqual(
+        partition_spec['opt_state'][0]['mu']['kernel'].get_value(),
+        jax.sharding.PartitionSpec('a', 'b'),
     )
 
   def test_optimizer_avoids_redundant_resharding(self):
@@ -118,19 +121,62 @@ class TestOptimizer(parameterized.TestCase):
       # to prevent eager execution of jit__identity_fn on large tensors.
       arr = jax.lax.with_sharding_constraint(
           jnp.ones((2, 3)),
-          jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('a', 'b')),
+          jax.sharding.NamedSharding(
+              mesh, jax.sharding.PartitionSpec('a', 'b')
+          ),
       )
       target_sharding = jax.sharding.NamedSharding(
           mesh, jax.sharding.PartitionSpec('a', 'b')
       )
       from flax.core import spmd
+
       result = spmd._apply_sharding(arr, target_sharding, mesh)
       self.assertIs(result, arr)
 
+  def test_optimizer_init_direct_sharding(self):
+    mesh = jax.make_mesh(
+        (1, 1),
+        ('a', 'b'),
+        axis_types=(jax.sharding.AxisType.Auto,) * 2,
+    )
+    with jax.set_mesh(mesh):
+      model = nnx.Linear(
+          2,
+          3,
+          rngs=nnx.Rngs(0),
+          kernel_init=nnx.with_partitioning(
+              nnx.initializers.lecun_normal(),
+              sharding=('a', 'b'),
+          ),
+          use_bias=True,
+      )
+      opt = nnx.Optimizer(model, optax.adam(1e-3), wrt=nnx.Param)
+
+      kernel_mu = opt.opt_state[0].mu['kernel'][...]
+      kernel_nu = opt.opt_state[0].nu['kernel'][...]
+      bias_mu = opt.opt_state[0].mu['bias'][...]
+
+      self.assertEqual(
+          kernel_mu.sharding,
+          jax.sharding.NamedSharding(
+              mesh, jax.sharding.PartitionSpec('a', 'b')
+          ),
+      )
+      self.assertEqual(
+          kernel_nu.sharding,
+          jax.sharding.NamedSharding(
+              mesh, jax.sharding.PartitionSpec('a', 'b')
+          ),
+      )
+      self.assertEqual(
+          bias_mu.sharding,
+          jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec()),
+      )
+
   @parameterized.product(
-    module_cls=[nnx.Linear, Model],
-    jit_decorator=[lambda f: f, nnx.compat.jit, jax.jit],
-    optimizer=[optax.sgd, optax.adam],
+      module_cls=[nnx.Linear, Model],
+      jit_decorator=[lambda f: f, nnx.compat.jit, jax.jit],
+      optimizer=[optax.sgd, optax.adam],
   )
   def test_jit(self, module_cls, jit_decorator, optimizer):
     x = jax.random.normal(jax.random.key(0), (1, 2))
@@ -346,7 +392,9 @@ class TestOptimizer(parameterized.TestCase):
         graph_updates=True,
     )
     graphdef, _, other_variables = nnx.compat.split(model, variable, ...)
-    loss_fn_split = lambda state: loss_fn(nnx.merge(graphdef, state, other_variables), x, y)
+    loss_fn_split = lambda state: loss_fn(
+        nnx.merge(graphdef, state, other_variables), x, y
+    )
 
     def step():
       grads = grad_fn(model, x, y)
@@ -411,6 +459,7 @@ class TestOptimizer(parameterized.TestCase):
 
     # Verify updates has the expected structure
     params = nnx.as_pure(nnx.state(model, nnx.Param))
+
     def check_structure(path, update_val, param_val):
       self.assertEqual(update_val.shape, param_val.shape)
 
@@ -440,12 +489,11 @@ class TestOptimizer(parameterized.TestCase):
     )
     optimizer = nnx.Optimizer(model, optax.lbfgs(), wrt=variable)
     graphdef, params, nondiff = nnx.split(model, variable, ..., graph=True)
-    prev_params, prev_nondiff = nnx.clone(
-        (params, nondiff), graph=True
-    )
+    prev_params, prev_nondiff = nnx.clone((params, nondiff), graph=True)
 
     x = jnp.ones((1, 4))
     y = jnp.ones((1, 10))
+
     def loss_fn(params, nondiff):
       model = nnx.merge(graphdef, params, nondiff)
       return ((model(x) - y) ** 2).mean()
@@ -515,4 +563,3 @@ class TestOptimizer(parameterized.TestCase):
 
 if __name__ == '__main__':
   absltest.main()
-
