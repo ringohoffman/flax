@@ -17,6 +17,7 @@ import functools
 import typing as tp
 
 import jax
+import jax.sharding
 import jax.numpy as jnp
 import optax
 import typing_extensions as tpe
@@ -157,7 +158,10 @@ class Optimizer(tp.Generic[M], Pytree):
     self.step = OptState(jnp.array(0, dtype=jnp.uint32))
     self.tx = tx
     model_state = nnx.state(model, wrt, graph=graph)
-    mesh = jax.sharding.get_mesh()
+    try:
+      mesh = jax.sharding.get_mesh()
+    except ValueError:
+      mesh = jax.sharding.get_abstract_mesh()
     if mesh is not None and not mesh.empty:
       abstract_opt = jax.eval_shape(tx.init, model_state)
 
